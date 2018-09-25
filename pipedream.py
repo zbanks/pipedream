@@ -1,19 +1,22 @@
-import trimesh
-import networkx
+#!/usr/bin/env python
+
+import argparse
 import itertools
-from collections import defaultdict
+import networkx
+import trimesh
 
 def load_mesh(filename):
     mesh = trimesh.load(filename)
     mesh.fix_normals()
     return mesh
 
-def route_string(mesh):
+def route_string(mesh, elide_facets=True):
     # face id -> primary face id
     facet_map = {x: x for x in range(len(mesh.faces))}
-    for facet in mesh.facets:
-        for face in facet:
-            facet_map[face] = facet[0]
+    if elide_facets:
+        for facet in mesh.facets:
+            for face in facet:
+                facet_map[face] = facet[0]
 
     # (facet id, edge) -> (facet id, edge)
     connectivity = {}
@@ -91,16 +94,20 @@ def print_steps(mesh, steps, scale=1.0):
         head = mesh.vertices[edge[1]]
         tail = mesh.vertices[edge[0]]
         length = sum([(a - b) ** 2. for a, b in zip(head, tail)]) ** 0.5
-        length = round(length, 2)
+        length = round(length * scale, 3)
         pipes[edge] = {
             "name": index_to_name(i),
             "length": length,
             "sort_order": (length, i),
+            "new": True
         }
     print "Bill of Materials"
     print "================="
     for pipe in sorted(pipes.values(), key=lambda x: x["sort_order"]):
         print "Pipe {:>3}, length={}".format(pipe["name"], pipe["length"])
+
+    print ""
+    print "Total length:", sum([p["length"] for p in pipes.values()])
 
     print ""
     print "Assembly Steps"
@@ -111,18 +118,53 @@ def print_steps(mesh, steps, scale=1.0):
             edge = edge[::-1]
             flip = True
         pipe = pipes[edge]
-        print "Step {:>3}: {} pipe {}".format(i + 1, ["front of", "back of"][flip], pipe["name"])
+        print "Step {:>3}: into pipe {} {} {}".format(i + 1, pipe["name"], ["front", "back"][flip], ["", "(new)"][pipe["new"]])
+        pipe["new"] = False
     print "          ...and tie off"
 
 
 def main():
-    #trimesh.util.attach_to_log()
-    #mesh = load_mesh("test/star.stl")
-    mesh = load_mesh("test/dodecahedron.stl")
-    #mesh = load_mesh("test/prism.stl")
-    #mesh = trimesh.primitives.Box()
-    steps = route_string(mesh)
-    print_steps(mesh, steps, scale=1.0)
+    parser = argparse.ArgumentParser(description="Convert STL meshes into a series of steps to assemble from pipes and string")
+    parser.add_argument("filename", nargs="?", help="Input STL file")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Include trimesh debug log")
+    parser.add_argument("--elide-facets", "-f", action="store_true", help="Elide edges shared by coplanar faces, reducing structure stability")
+    parser.add_argument("--scale", "-s", default=1.0, type=float, help="Scale factor")
+    parser.add_argument("--preview", "-p", action="store_true", help="Show 3D preview of input mesh")
+
+    parser.add_argument("--box", action="store_true", help="Use a box (cube) as the input mesh")
+    parser.add_argument("--icosahedron", action="store_true", help="Use an icosahedron as the input mesh")
+    parser.add_argument("--annulus", metavar="N", type=int, help="Use an annulus with N sides as the input mesh")
+
+    args = parser.parse_args()
+
+    if args.verbose:
+        trimesh.util.attach_to_log()
+
+    if args.box:
+        mesh = trimesh.primitives.Box()
+    elif args.icosahedron:
+        mesh = trimesh.creation.icosahedron()
+    elif args.annulus is not None:
+        mesh = trimesh.creation.annulus(sections=args.annulus+1)
+    elif args.filename:
+        mesh = load_mesh(args.filename)
+    else:
+        parser.error("Must specify filename or shape")
+
+    assert mesh
+
+    steps = route_string(mesh, elide_facets=args.elide_facets)
+    print_steps(mesh, steps, scale=args.scale)
+
+    if args.preview:
+        viewer = mesh.show(start_loop=False)
+        viewer.view["wireframe"] = True
+        viewer.view["cull"] = False
+        viewer.update_flags()
+
+        import pyglet
+        pyglet.app.run()
+
     return mesh, steps
 
 if __name__ == "__main__":
