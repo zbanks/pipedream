@@ -75,7 +75,7 @@ def route_string(mesh, elide_facets=True):
 
     return steps
 
-def index_to_name(index):
+def letter_index(index):
     name = ""
     while True:
         name = chr(ord('A') + (index % 26)) + name
@@ -85,7 +85,22 @@ def index_to_name(index):
         index -= 1
     return name
 
-def print_steps(mesh, steps, scale=1.0):
+ditdahs = []
+for i in range(1, 10):
+    ditdahs += [bin(j)[2:].zfill(i).replace("0", ".").replace("1", "-") for j in range(2 ** i)]
+def ditdah_index(index):
+    return ditdahs[index]
+
+def number_index(index):
+    return str(index + 1)
+
+INDEX_METHODS = {
+    "letters": letter_index,
+    "ditdah": ditdah_index,
+    "numbers": number_index,
+}
+
+def print_steps(mesh, steps, scale=1.0, name_fn=letter_index):
     pipes = {}
     for _face, edge in steps:
         if edge in pipes or edge[::-1] in pipes:
@@ -96,7 +111,7 @@ def print_steps(mesh, steps, scale=1.0):
         length = sum([(a - b) ** 2. for a, b in zip(head, tail)]) ** 0.5
         length = round(length * scale, 3)
         pipes[edge] = {
-            "name": index_to_name(i),
+            "name": name_fn(i),
             "length": length,
             "sort_order": (length, i),
             "new": True
@@ -104,7 +119,7 @@ def print_steps(mesh, steps, scale=1.0):
     print "Bill of Materials"
     print "================="
     for pipe in sorted(pipes.values(), key=lambda x: x["sort_order"]):
-        print "Pipe {:>3}, length={}".format(pipe["name"], pipe["length"])
+        print "Pipe {:<6}, length={}".format(pipe["name"], pipe["length"])
 
     print ""
     print "Total length:", sum([p["length"] for p in pipes.values()])
@@ -118,7 +133,7 @@ def print_steps(mesh, steps, scale=1.0):
             edge = edge[::-1]
             flip = True
         pipe = pipes[edge]
-        print "Step {:>3}: into pipe {} {} {}".format(i + 1, pipe["name"], ["front", "back"][flip], ["", "(new)"][pipe["new"]])
+        print "Step {:>3}: into pipe {:<6} {} {}".format(i + 1, pipe["name"], ["front", "back"][flip], ["", "(new)"][pipe["new"]])
         pipe["new"] = False
     print "          ...and tie off"
 
@@ -130,6 +145,7 @@ def main():
     parser.add_argument("--elide-facets", "-f", action="store_true", help="Elide edges shared by coplanar faces, reducing structure stability")
     parser.add_argument("--scale", "-s", default=1.0, type=float, help="Scale factor")
     parser.add_argument("--preview", "-p", action="store_true", help="Show 3D preview of input mesh")
+    parser.add_argument("--index-method", "-m", default="letters", choices=INDEX_METHODS.keys(), help="Function to use to name the edges")
 
     parser.add_argument("--box", action="store_true", help="Use a box (cube) as the input mesh")
     parser.add_argument("--icosahedron", action="store_true", help="Use an icosahedron as the input mesh")
@@ -154,7 +170,7 @@ def main():
     assert mesh
 
     steps = route_string(mesh, elide_facets=args.elide_facets)
-    print_steps(mesh, steps, scale=args.scale)
+    print_steps(mesh, steps, scale=args.scale, name_fn=INDEX_METHODS[args.index_method])
 
     if args.preview:
         viewer = mesh.show(start_loop=False)
